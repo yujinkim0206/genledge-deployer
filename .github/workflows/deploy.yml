@@ -48,6 +48,12 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           persist-credentials: false
 
+      # Vercel's free plan blocks deploys whose git commit author isn't on the
+      # Vercel team, so deploy the files without any git metadata.
+      - name: Remove git metadata
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: rm -rf .git
+
       - name: Deploy to Vercel (production)
         if: steps.seen.outputs.cache-hit != 'true'
         run: npx --yes vercel@latest deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
