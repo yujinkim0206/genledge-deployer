@@ -1,0 +1,64 @@
+name: Deploy D3 frontend to Vercel
+
+# The org repo can't run GitHub Actions (shared spending limit reached),
+# so this public repo checks the org repo's main every 5 minutes and deploys
+# the frontend to Vercel when main has a new commit.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_REPO: csc301-2026-f/23-Agentic-AI-Analytics-and-Data-Pipeline-for-ERP
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Find latest commit on main
+        id: head
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          sha=$(gh api "repos/$SOURCE_REPO/commits/main" --jq .sha)
+          echo "Latest main commit: $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check if this commit was already deployed
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: .deployed
+          key: deployed-${{ steps.head.outputs.sha }}
+          lookup-only: true
+
+      - name: Check out main
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ steps.head.outputs.sha }}
+          token: ${{ secrets.GH_PAT }}
+          persist-credentials: false
+
+      - name: Deploy to Vercel (production)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: npx --yes vercel@latest deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Remember this commit
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p .deployed && echo "${{ steps.head.outputs.sha }}" > .deployed/sha
+
+      - name: Save deployed marker
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deployed
+          key: deployed-${{ steps.head.outputs.sha }}
