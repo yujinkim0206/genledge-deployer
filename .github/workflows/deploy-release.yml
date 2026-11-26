@@ -1,0 +1,96 @@
+name: Deploy D4 release frontend
+
+on:
+  schedule:
+    - cron: "3-59/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-release-d4-frontend
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    if: vars.RELEASE_FRONTEND_DEPLOY_ENABLED == 'true' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_REPO: csc301-2026-f/23-Agentic-AI-Analytics-and-Data-Pipeline-for-ERP
+      SOURCE_BRANCH: release/d4
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_RELEASE_PROJECT_ID }}
+    steps:
+      - name: Check release project configuration
+        env:
+          DEV_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [[ -z "$VERCEL_ORG_ID" || -z "$DEV_PROJECT_ID" ||
+                "$VERCEL_PROJECT_ID" != prj_* || "$VERCEL_PROJECT_ID" == "$DEV_PROJECT_ID" ]]; then
+            echo 'Set a release Vercel project ID distinct from the existing dev project.' >&2
+            exit 1
+          fi
+
+      - name: Find the latest release commit
+        id: head
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          sha=$(gh api -X GET "repos/$SOURCE_REPO/commits" \
+            -f "sha=$SOURCE_BRANCH" -F per_page=1 --jq '.[0].sha')
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'The release branch did not resolve to a commit.' >&2
+            exit 1
+          fi
+          echo "Release commit: $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check for a successful deployment of this commit
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/genledge-release-deployed
+          key: release-d4-deployed-${{ steps.head.outputs.sha }}
+          lookup-only: true
+
+      - name: Check out the release commit
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ steps.head.outputs.sha }}
+          token: ${{ secrets.GH_PAT }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Deploy the release frontend to Vercel
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          RELEASE_SHA: ${{ steps.head.outputs.sha }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          frontend_dir="$RUNNER_TEMP/genledge-release-frontend"
+          mkdir -p "$frontend_dir"
+          git archive HEAD:src/frontend | tar -xf - -C "$frontend_dir"
+          npx --yes vercel@67.0.0 deploy --cwd "$frontend_dir" --prod --yes \
+            --meta "sourceCommit=$RELEASE_SHA" --token "$VERCEL_TOKEN"
+          mkdir -p "$RUNNER_TEMP/genledge-release-deployed"
+          echo "$RELEASE_SHA" > "$RUNNER_TEMP/genledge-release-deployed/sha"
+
+      - name: Record the successful deployment
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/genledge-release-deployed
+          key: release-d4-deployed-${{ steps.head.outputs.sha }}
