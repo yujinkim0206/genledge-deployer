@@ -80,10 +80,13 @@ jobs:
           RELEASE_SHA: ${{ steps.head.outputs.sha }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          frontend_dir="$RUNNER_TEMP/genledge-release-frontend"
-          mkdir -p "$frontend_dir"
-          git archive HEAD:src/frontend | tar -xf - -C "$frontend_dir"
-          npx --yes vercel@67.0.0 deploy --cwd "$frontend_dir" --prod --yes \
+          deploy_dir="$RUNNER_TEMP/genledge-release-frontend"
+          mkdir -p "$deploy_dir"
+          # TypeScript checks frontend tests that import the shared contract fixture.
+          # Keep their repository-relative paths without uploading backend sources.
+          git archive HEAD src/frontend docs/contracts/d2-v1.examples.json |
+            tar -xf - -C "$deploy_dir"
+          npx --yes vercel@67.0.0 deploy --cwd "$deploy_dir" --prod --yes \
             --meta "sourceCommit=$RELEASE_SHA" --token "$VERCEL_TOKEN"
           mkdir -p "$RUNNER_TEMP/genledge-release-deployed"
           echo "$RELEASE_SHA" > "$RUNNER_TEMP/genledge-release-deployed/sha"
