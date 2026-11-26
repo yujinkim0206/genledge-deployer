@@ -82,11 +82,11 @@ jobs:
         run: |
           deploy_dir="$RUNNER_TEMP/genledge-release-frontend"
           mkdir -p "$deploy_dir"
-          # TypeScript checks frontend tests that import the shared contract fixture.
-          # Keep their repository-relative paths without uploading backend sources.
-          git archive HEAD src/frontend docs/contracts/d2-v1.examples.json |
+          # Preserve the Vercel configuration and the fixture imported by frontend tests.
+          git archive HEAD vercel.json src/frontend docs/contracts/d2-v1.examples.json |
             tar -xf - -C "$deploy_dir"
-          npx --yes vercel@67.0.0 deploy --cwd "$deploy_dir" --prod --yes \
+          cd "$deploy_dir"
+          npx --yes vercel@67.0.0 deploy --prod --yes \
             --meta "sourceCommit=$RELEASE_SHA" --token "$VERCEL_TOKEN"
           mkdir -p "$RUNNER_TEMP/genledge-release-deployed"
           echo "$RELEASE_SHA" > "$RUNNER_TEMP/genledge-release-deployed/sha"
